@@ -165,7 +165,27 @@ recon_wed_dir_file_fuzzing(){
 ENDTIME=$(date +%s)
 totalTime=$(( $ENDTIME-$STARTTIME ))
 
-curl -v -F "chat_id=731636917" -F document=@/$toolsDir/results/$domain-$dt/$domain.validsubdomains.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument
+basedir=/home/rocky2311/tools/results
+
+find $basedir/ -maxdepth 1 -name "cesppa*" -type d -exec readlink -f {} \; > $basedir/names.txt
+
+if (($(wc -l < $basedir/names.txt) <= 1 ));then exit 1
+fi
+sort -k1 -r $basedir/names.txt > $basedir/sorted.txt
+
+head -2 $basedir/sorted.txt > $basedir/names_lim.txt
+
+awk '{ print $0}' $basedir/names_lim.txt | awk -F'/' '{print $6}' > $basedir/na_lim_split.txt
+
+line1=$(head  -1 $basedir/na_lim_split.txt)
+line2=$(head  -2 $basedir/na_lim_split.txt | tail -1)
+
+
+diff -bir $basedir/$line1/$domain.validsubdomains.txt $basedir/$line2/$domain.validsubdomains.txt | sort > $basedir/diff.txt
+
+cat $basedir/diff.txt
+
+curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$basedir/diff.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
 
 echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 echo -e "Results in : ${LIGHT_GREEN}$resultDir${NORMAL}"

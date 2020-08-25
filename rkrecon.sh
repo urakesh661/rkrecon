@@ -13,6 +13,7 @@ toolsDir=~/tools
 resultDirWebSS=$toolsDir/results/$domain-$dt/WebScreenshot
 resultDir=$toolsDir/results/$domain-$dt
 resultDirNMap=$toolsDir/results/$domain-$dt/NMap
+basedir=~/tools/results
 
 mkdir -p $resultDir
 mkdir -p $resultDirNMap
@@ -165,9 +166,11 @@ recon_wed_dir_file_fuzzing(){
 ENDTIME=$(date +%s)
 totalTime=$(( $ENDTIME-$STARTTIME ))
 
-basedir=/home/rocky2311/tools/results
 
-find $basedir/ -maxdepth 1 -name "cesppa*" -type d -exec readlink -f {} \; > $basedir/names.txt
+domain_diff=$domain
+domain_regexp=*
+
+find $basedir/ -maxdepth 1 -name  ${domain_diff}${domain_regexp} -type d -exec readlink -f {} \; > $basedir/names.txt
 
 if (($(wc -l < $basedir/names.txt) <= 1 ));then exit 1
 fi
@@ -181,11 +184,14 @@ line1=$(head  -1 $basedir/na_lim_split.txt)
 line2=$(head  -2 $basedir/na_lim_split.txt | tail -1)
 
 
-diff -bir $basedir/$line1/$domain.validsubdomains.txt $basedir/$line2/$domain.validsubdomains.txt | sort > $basedir/diff.txt
+diff -bir $basedir/$line1/$domain.validsubdomains.txt $basedir/$line2/$domain.validsubdomains.txt | sort > $basedir/subdomains_new.txt
 
-cat $basedir/diff.txt
+cat $basedir/subdomains_new.txt
 
-curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$basedir/diff.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
+rm -rf $basedir/na_lim_split.txt $basedir/names.txt $basedir/names_lim.txt $basedir/sorted.txt
+
+curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$basedir/subdomains_new.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
+
 
 echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 echo -e "Results in : ${LIGHT_GREEN}$resultDir${NORMAL}"

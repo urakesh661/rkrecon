@@ -77,7 +77,7 @@ echo -e "${LIGHT_YELLOW}Checking whether subdomain collection finished working${
 while : ;
 do
     sleep 5s 
-    if [ ! `pidof findomain` ] && [ ! `pidof assetfinder` ] ; then
+    if [[ ! `pidof findomain` ]] && [[ ! `pidof assetfinder` ]] ; then
         
         screen -X -S $findomainScreen quit
         screen -X -S $assetfinderScreen quit
@@ -130,8 +130,8 @@ recon_screenshot(){
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for domains resolved through httprobe!${NORMAL}"
 	awk !/'.js'/ $resultDir/waybackurl_$domain.txt > $resultDir/waybackurl_nojs.$domain.txt 
 	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
-	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for url's discovered using waybackmachine!${NORMAL}"
-	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/waybackurl_nojs.$domain.txt -o $resultDirWebSS -q 05 -t 05
+	#echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for url's discovered using waybackmachine!${NORMAL}"
+	#python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/waybackurl_nojs.$domain.txt -o $resultDirWebSS -q 05 -t 05
 
 }
 
@@ -141,7 +141,7 @@ recon_jslinks(){
 	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks started using LinkFinder!${NORMAL}"
 	cat $resultDir/waybackurl_$domain.txt | grep ".js" > $resultDir/jslinks.txt
    	for end in $(cat $resultDir/jslinks.txt); do python3 $toolsDir/LinkFinder/linkfinder.py -i $end -o cli;done > $resultDir/js_output.txt 
-	grep -vwE "(Usage|Error|text/xml|text/plain|text/html|application/x-www-form-urlencoded|text/javascript)"  $resultDir/js_output.txt > $resultDir/jsfinal.txt
+	grep -vwE "(Usage|Error|text/xml|text/plain|text/html|application/x-www-form-urlencoded|text/javascript|image/x-icon|)"  $resultDir/js_output.txt > $resultDir/jsfinal.txt
 
 }
 
@@ -153,15 +153,9 @@ recon_wed_dir_file_fuzzing(){
 
 }
 
+recon_domain_diff(){
 
-#recon_resdomains
-#recon_waybackurls
-#recon_nmap
-#recon_screenshot
-#recon_jslinks
-#recon_wed_dir_file_fuzzing
-
-#rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt $resultDir/js_output.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt
+rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt $resultDir/js_output.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt
 
 ENDTIME=$(date +%s)
 totalTime=$(( $ENDTIME-$STARTTIME ))
@@ -170,29 +164,43 @@ totalTime=$(( $ENDTIME-$STARTTIME ))
 domain_diff=$domain
 domain_regexp=*
 
-find $basedir/ -maxdepth 1 -name  ${domain_diff}${domain_regexp} -type d -exec readlink -f {} \; > $basedir/names.txt
+echo "domain:::" $domain
 
-if (($(wc -l < $basedir/names.txt) <= 1 ));then exit 1
+sleep 2
+
+find $basedir/ -maxdepth 1 -name  ${domain_diff}${domain_regexp} -type d -exec readlink -f {} \; > $resultDir/names.txt
+
+if (($(wc -l < $resultDir/names.txt) <= 1 ));then exit 1
 fi
-sort -k1 -r $basedir/names.txt > $basedir/sorted.txt
+sort -k1 -r $resultDir/names.txt > $resultDir/sorted.txt
 
-head -2 $basedir/sorted.txt > $basedir/names_lim.txt
+head -2 $resultDir/sorted.txt > $resultDir/names_lim.txt
 
-awk '{ print $0}' $basedir/names_lim.txt | awk -F'/' '{print $6}' > $basedir/na_lim_split.txt
+awk '{ print $0}' $resultDir/names_lim.txt | awk -F'/' '{print $6}' > $resultDir/na_lim_split.txt
 
-line1=$(head  -1 $basedir/na_lim_split.txt)
-line2=$(head  -2 $basedir/na_lim_split.txt | tail -1)
+line1=$(head  -1 $resultDir/na_lim_split.txt)
+line2=$(head  -2 $resultDir/na_lim_split.txt | tail -1)
 
 
-diff -bir $basedir/$line1/$domain.validsubdomains.txt $basedir/$line2/$domain.validsubdomains.txt | sort > $basedir/subdomains_new.txt
+diff -bir $basedir/$line1/$domain.validsubdomains.txt $basedir/$line2/$domain.validsubdomains.txt | sort > $resultDir/${domain_diff}_subdomains_new.txt
 
-cat $basedir/subdomains_new.txt
+#cat $basedir/subdomains_new.txt
 
-rm -rf $basedir/na_lim_split.txt $basedir/names.txt $basedir/names_lim.txt $basedir/sorted.txt
+rm -rf $resultDir/na_lim_split.txt $resultDir/names.txt $resultDir/names_lim.txt $resultDir/sorted.txt
 
-curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$basedir/subdomains_new.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
+curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$resultDir/${domain_diff}_subdomains_new.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
 
 
 echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 echo -e "Results in : ${LIGHT_GREEN}$resultDir${NORMAL}"
 echo -e "${LIGHT_GREEN}" && tree $resultDir && echo -en "${NORMAL}"
+
+}
+
+recon_resdomains
+recon_waybackurls
+#recon_nmap
+recon_screenshot
+recon_jslinks
+#recon_wed_dir_file_fuzzing
+recon_domain_diff

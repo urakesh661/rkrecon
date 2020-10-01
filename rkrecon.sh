@@ -6,7 +6,7 @@ STARTTIME=$(date +%s)
 
 domain=$1
 word=$2
-path=$3
+#path=$3
 dt=$(date +%F.%H.%M.%S)
 
 toolsDir=~/tools
@@ -103,7 +103,7 @@ echo -e "${BOLD}${LIGHT_GREEN}Total subdomains found : `wc -l $resultDir/$domain
 recon_resdomains(){
 
 		echo -e "${BOLD}${LIGHT_GREEN}Starting fetching resolved subdomains using httprobe${NORMAL}"
-		cat $resultDir/$domain.validsubdomains.txt | httprobe > $resultDir/httprobe.$domain.txt  
+		cat $resultDir/$domain.validsubdomains.txt | httprobe -c 50 > $resultDir/httprobe.$domain.txt  
     	
 }
 
@@ -119,8 +119,10 @@ recon_waybackurls(){
 recon_nmap(){
 
 	echo -e "${BOLD}${LIGHT_GREEN}NMap scan started${NORMAL}"
-	for i in $(cat $resultDir/$domain.validsubdomains.txt); do echo nmap -sT -T5 -Pn -p1-1000  -oN $resultDirNMap/${i} $i; done > $resultDirNMap/subdomains.txt
-	parallel --jobs 5 < $resultDirNMap/subdomains.txt
+	for i in $(cat $resultDir/$domain.validsubdomains.txt); do echo nmap -sT -T5 -Pn -p1-65535  -oN $resultDirNMap/${i} $i; done > $resultDirNMap/subdomains.txt
+	parallel --jobs 15 < $resultDirNMap/subdomains.txt
+	
+	for file in *.txt; do (cat "${file}"; echo) >> all_nmap_scans.txt; done
 	
 }
 
@@ -130,9 +132,17 @@ recon_screenshot(){
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for domains resolved through httprobe!${NORMAL}"
 	awk !/'.js'/ $resultDir/waybackurl_$domain.txt > $resultDir/waybackurl_nojs.$domain.txt 
 	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
-	#echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for url's discovered using waybackmachine!${NORMAL}"
-	#python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/waybackurl_nojs.$domain.txt -o $resultDirWebSS -q 05 -t 05
-
+	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for url's discovered using waybackmachine!${NORMAL}"
+	
+	cat $resultDir/waybackurl_nojs.$domain.txt | medic -c 30 > $resultDir/url_responsecode.txt
+	awk '$3 == 200' $resultDir/url_responsecode.txt > $resultDir/url_code_200.txt
+	awk '$3 == 403' $resultDir/url_responsecode.txt > $resultDir/url_code_403.txt
+	
+	awk '{ print $4 }' $resultDir/url_code_200.txt > $resultDir/url_responsecode_200.txt
+	awk '{ print $4 }' $resultDir/url_code_403.txt > $resultDir/url_responsecode_403.txt
+	
+	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/url_responsecode_200.txt -o $resultDirWebSS -q 05 -t 60
+    python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/url_responsecode_403.txt -o $resultDirWebSS -q 05 -t 60
 }
 
 
@@ -164,7 +174,7 @@ totalTime=$(( $ENDTIME-$STARTTIME ))
 domain_diff=$domain
 domain_regexp=*
 
-echo "domain:::" $domain
+echo "Subdomain diff. comparison process started---->" $domain
 
 sleep 2
 
@@ -194,7 +204,7 @@ curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$resultDi
 echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 echo -e "Results in : ${LIGHT_GREEN}$resultDir${NORMAL}"
 echo -e "${LIGHT_GREEN}" && tree $resultDir && echo -en "${NORMAL}"
-
+echo "Subdomain diff. comparison process competed---->" $domain
 }
 
 recon_resdomains

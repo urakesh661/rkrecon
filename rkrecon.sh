@@ -14,10 +14,12 @@ resultDirWebSS=$toolsDir/results/$domain-$dt/WebScreenshot
 resultDir=$toolsDir/results/$domain-$dt
 resultDirNMap=$toolsDir/results/$domain-$dt/NMap
 basedir=~/tools/results
+jsfilesDir=$toolsDir/results/$domain-$dt/JSFiles
 
 mkdir -p $resultDir
 mkdir -p $resultDirNMap
 mkdir -p $resultDirWebSS
+mkdir -p $jsfilesDir
 
 STARTTIME=$(date +%s)
 
@@ -43,24 +45,26 @@ EOF
 
 recon_findomain(){
 
-	echo -e "${BOLD}${LIGHT_GREEN}Start subdomain scanning using findomain!${NORMAL}"
-	findomainScreen=$domain-findomain
+    echo -e "${BOLD}${LIGHT_GREEN}Subdomain scanning started using findomain!${NORMAL}"
+    findomainScreen=$domain-findomain
     findomainOutput=$resultDir/findomain_$domain.txt
     screen -dmS $findomainScreen bash
     sleep 1
     screen -S $findomainScreen -X stuff "findomain -o -t $domain
     "
+    echo -e "${BOLD}${LIGHT_GREEN}Subdomain scanning completed using findomain!${NORMAL}"
 }
 
 recon_assetfinder(){
 
-	echo -e "${BOLD}${LIGHT_GREEN}Start subdomain scanning using asset finder!${NORMAL}"
-	assetfinderScreen=$domain-assetfinder
+    echo -e "${BOLD}${LIGHT_GREEN}Subdomain scanning started using asset finder!${NORMAL}"
+    assetfinderScreen=$domain-assetfinder
     assetfinderOutput=$resultDir/assetfinder_$domain.txt
     screen -dmS $assetfinderScreen bash
     sleep 1
     screen -S $assetfinderScreen -X stuff "assetfinder $domain > $assetfinderOutput
     "           
+    echo -e "${BOLD}${LIGHT_GREEN}Subdomain scanning completed using asset finder!${NORMAL}"
 }
 
 find_subdomains(){
@@ -102,36 +106,68 @@ echo -e "${BOLD}${LIGHT_GREEN}Total subdomains found : `wc -l $resultDir/$domain
 
 recon_resdomains(){
 
-		echo -e "${BOLD}${LIGHT_GREEN}Starting fetching resolved subdomains using httprobe${NORMAL}"
+		echo -e "${BOLD}${LIGHT_GREEN}Fetching of resolved subdomains using httprobe started!${NORMAL}"
 		cat $resultDir/$domain.validsubdomains.txt | httprobe -c 50 > $resultDir/httprobe.$domain.txt  
-    	
+		echo -e "${BOLD}${LIGHT_GREEN}Fetching of resolved subdomains using httprobe completed!${NORMAL}"
 }
 
 
 recon_waybackurls(){
 
-		echo -e "${BOLD}${LIGHT_GREEN}Fetching url's from way back machine${NORMAL}"
+		echo -e "${BOLD}${LIGHT_GREEN}Fetching of url's from way back machine started!${NORMAL}"
 		cat $resultDir/$domain.validsubdomains.txt | waybackurls > $resultDir/waybackurl_$domain.txt
-
+		echo -e "${BOLD}${LIGHT_GREEN}Fetching of url's from way back machine completed!${NORMAL}"
 }
 
 
-recon_nmap(){
+recon_naabu(){
 
-	echo -e "${BOLD}${LIGHT_GREEN}NMap scan started${NORMAL}"
-	for i in $(cat $resultDir/$domain.validsubdomains.txt); do echo nmap -sT -T5 -Pn -p1-65535  -oN $resultDirNMap/${i} $i; done > $resultDirNMap/subdomains.txt
-	parallel --jobs 15 < $resultDirNMap/subdomains.txt
+	echo -e "${BOLD}${LIGHT_GREEN}Port scanning using Naabu started!${NORMAL}"
+	naabu -silent -iL $resultDir/$domain.validsubdomains.txt -o $resultDirNMap/naabu_portscanning_result.txt > /dev/null
+        echo -e "${BOLD}${LIGHT_GREEN}Port scanning using Naabu completed!${NORMAL}"
+}
+
+
+recon_jslinks(){
 	
-	for file in *.txt; do (cat "${file}"; echo) >> all_nmap_scans.txt; done
+	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks started!${NORMAL}"
+	xargs -P 500 -a  $resultDir/$domain.validsubdomains.txt -I@ sh -c 'nc -w1 -z -v @ 443 2>/dev/null && echo @' | xargs -I@ -P10 sh -c 'gospider -a -s "https://@" -d 2 | grep -Eo "(http|https)://[^/\"].*\.js+" | sed "s#\] \-  #\n#g" | anew' > $resultDir/subdomain_js_files.txt
+	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks completed!${NORMAL}"
+	
+	echo -e "${BOLD}${LIGHT_GREEN}Fetching of endpoints,parameters etc. started!${NORMAL}"
+	for url in $(cat $resultDir/subdomain_js_files.txt);do wget -q $url -P /$resultDir/JSFiles/;done
+	cd /$resultDir/JSFiles
+	ls -v | cat -n | while read n f; do mv -n "$f" "$n.js"; done
+	find . -type f -name "*.js" -exec js-beautify -r {} +
+	for file in /$resultDir/JSFiles/*
+	do
+		python3 $toolsDir/LinkFinder/linkfinder.py -i $file -o cli >> /$resultDir/endpoints.txt
+	done
+	grep -Fvxf /home/rocky2311/nottobe_included.txt /$resultDir/endpoints.txt > /$resultDir/endpoints_final.txt 
+	echo -e "${BOLD}${LIGHT_GREEN}Fetching of endpooints,parameters etc. completed!${NORMAL}"
 	
 }
 
+
+recon_wed_dir_file_fuzzing(){
+	
+	echo -e "${BOLD}${LIGHT_GREEN}File & directory discovery process started!${NORMAL}"
+	for end in $(cat $resultDir/httprobe.$domain.txt); do ffuf -w /home/rocky2311/generic_crowd_sourced_new.txt -u $end/FUZZ -mc 200,202,203,403 -t 2 -r -recursion 2 -s ;done > $resultDir/subdomaindata_httprobe_fuzzing.txt 
+	sed $'s/[^[:print:]\t]//g' $resultDir/subdomaindata_httprobe_fuzzing.txt
+	sed -r 's/.{3}//' $resultDir/subdomaindata_httprobe_fuzzing.txt > $resultDir/subdomaindata_httprobe_fuzzing_final.txt
+	echo -e "${BOLD}${LIGHT_GREEN}File & directory discovery process completed!${NORMAL}"
+}
 
 recon_screenshot(){
 
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for domains resolved through httprobe!${NORMAL}"
 	awk !/'.js'/ $resultDir/waybackurl_$domain.txt > $resultDir/waybackurl_nojs.$domain.txt 
-	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
+	python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
+	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process completed for domains resolved through httprobe!${NORMAL}"
+	
+}
+
+recon_screenshot_waybackurl(){	
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for url's discovered using waybackmachine!${NORMAL}"
 	
 	cat $resultDir/waybackurl_nojs.$domain.txt | medic -c 30 > $resultDir/url_responsecode.txt
@@ -142,30 +178,14 @@ recon_screenshot(){
 	awk '{ print $4 }' $resultDir/url_code_403.txt > $resultDir/url_responsecode_403.txt
 	
 	python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/url_responsecode_200.txt -o $resultDirWebSS -q 05 -t 60
-    python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/url_responsecode_403.txt -o $resultDirWebSS -q 05 -t 60
+        python $toolsDir/webscreenshot/webscreenshot.py	-i $resultDir/url_responsecode_403.txt -o $resultDirWebSS -q 05 -t 60
+	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process completed for url's discovered using waybackmachine!${NORMAL}"        
 }
 
-
-recon_jslinks(){
-	
-	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks started using LinkFinder!${NORMAL}"
-	cat $resultDir/waybackurl_$domain.txt | grep ".js" > $resultDir/jslinks.txt
-   	for end in $(cat $resultDir/jslinks.txt); do python3 $toolsDir/LinkFinder/linkfinder.py -i $end -o cli;done > $resultDir/js_output.txt 
-	grep -vwE "(Usage|Error|text/xml|text/plain|text/html|application/x-www-form-urlencoded|text/javascript|image/x-icon|)"  $resultDir/js_output.txt > $resultDir/jsfinal.txt
-
-}
-
-
-recon_wed_dir_file_fuzzing(){
-	
-	echo -e "${BOLD}${LIGHT_GREEN}File & directory discovery process started!${NORMAL}"
-	meg  --verbose $path $resultDir/httprobe.$domain.txt > $resultDir/fuzzing.txt
-
-}
 
 recon_domain_diff(){
 
-rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt $resultDir/js_output.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt
+rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt $resultDir/subdomaindata_httprobe_fuzzing.txt $resultDir/endpoints.txt
 
 ENDTIME=$(date +%s)
 totalTime=$(( $ENDTIME-$STARTTIME ))
@@ -209,8 +229,8 @@ echo "Subdomain diff. comparison process competed---->" $domain
 
 recon_resdomains
 recon_waybackurls
-#recon_nmap
+recon_naabu
 recon_screenshot
 recon_jslinks
-#recon_wed_dir_file_fuzzing
+recon_wed_dir_file_fuzzing
 recon_domain_diff

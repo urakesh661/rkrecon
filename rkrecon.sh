@@ -9,17 +9,19 @@ word=$2
 #path=$3
 dt=$(date +%F.%H.%M.%S)
 
-toolsDir=/media/rocky2311/210cf76e-f990-4ec3-82fc-cdef7cc951691/Recon_Auto/tools
+toolsDir=~/tools
 resultDirWebSS=$toolsDir/results/$domain-$dt/WebScreenshot
+resultDirNuclei=$toolsDir/results/$domain-$dt/Nuclei
 resultDir=$toolsDir/results/$domain-$dt
 resultDirNMap=$toolsDir/results/$domain-$dt/NMap
-basedir=/media/rocky2311/210cf76e-f990-4ec3-82fc-cdef7cc951691/Recon_Auto/tools/results
+basedir=~/tools/results
 jsfilesDir=$toolsDir/results/$domain-$dt/JSFiles
 
 mkdir -p $resultDir
 mkdir -p $resultDirNMap
 mkdir -p $resultDirWebSS
 mkdir -p $jsfilesDir
+mkdir -p $resultDirNuclei
 
 STARTTIME=$(date +%s)
 
@@ -30,6 +32,9 @@ LIGHT_YELLOW='\e[93m'
 BLINK='\e[5m'
 BOLD='\e[1m'
 UNDERLINE='\e[4m'
+
+domain_diff=$domain
+domain_regexp="*"
 
 cat << "EOF"
 
@@ -103,7 +108,8 @@ do
 		sed -i "/\b\(-\|,\)\b/d" $resultDir/$domain.validsubdomain.txt
 		sed '/[0-9]/d' $resultDir/$domain.validsubdomain.txt >> $resultDir/$domain.validsubdomainss.txt
 		awk '!/\-/' $resultDir/$domain.validsubdomainss.txt  >> $resultDir/$domain.valsubdomainss.txt
-		
+		sed -i '/^*/d' $resultDir/$domain.valsubdomainss.txt
+		sed -i '/^'$domain'/d' $resultDir/$domain.valsubdomainss.txt
         echo -en "\rTime elapsed : $totalTime seconds"
         break;
     fi
@@ -112,14 +118,57 @@ do
     echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 done
 echo ""
-echo -e "${BOLD}${LIGHT_GREEN}Done finding subdomains${NORMAL}"
+echo -e "${BOLD}${LIGHT_GREEN}Done finding subdomains!${NORMAL}"
 echo -e "${BOLD}${LIGHT_GREEN}Total subdomains found : `wc -l $resultDir/$domain.valsubdomainss.txt`${NORMAL}"
 
 recon_resdomains(){
 
 		echo -e "${BOLD}${LIGHT_GREEN}Fetching of resolved subdomains using httprobe started!${NORMAL}"
-		cat $resultDir/$domain.valsubdomainss.txt | httprobe -c 40 >> $resultDir/httprobe.$domain.txt  
+		cat $resultDir/$domain.valsubdomainss.txt | httprobe -c 40 --prefer-https >> $resultDir/httprobe.$domain.txt  
 		echo -e "${BOLD}${LIGHT_GREEN}Fetching of resolved subdomains using httprobe completed!${NORMAL}"
+}
+
+recon_nuclei(){
+		
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of technology stack started!${NORMAL}"
+	    echo "Number of valid url's resolved by httprobe --------> " $( wc -l < $resultDir/httprobe.$domain.txt )
+	    for file in /home/rocky2311/nuclei-templates/technologies/*
+	    do
+	        for host in $(cat $resultDir/httprobe.$domain.txt)
+	        do
+	    		nuclei -json -silent -target $host -t $file -rate-limit 8 >> $resultDirNuclei/nuclei_technology_stack.json 
+	    		echo -e "${BOLD}${LIGHT_GREEN}Done for ---> ${NORMAL}" $host $file
+	    	done
+	    	echo ""		
+	    done  
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of technology stack completed!${NORMAL}"
+	    
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of panels started!${NORMAL}"
+	    for file in /home/rocky2311/nuclei-templates/panels/*
+	    do
+	        for host in $(cat $resultDir/httprobe.$domain.txt)
+	        do
+	    		nuclei -json -silent -target $host -t $file -rate-limit 8 >> $resultDirNuclei/nuclei_panels.json 
+	    		echo -e "${BOLD}${LIGHT_GREEN}Done for ---> ${NORMAL}" $host $file
+	    	done
+	    	echo ""		
+	    done    
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of panels completed!${NORMAL}"
+	    
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of misc. started!${NORMAL}"
+	    for file in /home/rocky2311/nuclei-templates/misc/*
+	    do
+	        for host in $(cat $resultDir/httprobe.$domain.txt)
+	        do
+	    		nuclei -json -silent -target $host -t $file -rate-limit 8 >> $resultDirNuclei/nuclei_misc.json 
+	    		echo -e "${BOLD}${LIGHT_GREEN}Done for ---> ${NORMAL}" $host $file
+	    	done	
+	    	echo ""	
+	    done       
+	    echo -e "${BOLD}${LIGHT_GREEN}Fetching of misc. completed!${NORMAL}"
+	    
+	    
+
 }
 
 
@@ -143,7 +192,9 @@ recon_jslinks(){
 	
 	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks started!${NORMAL}"
 	cut -d'/' -f3 $resultDir/httprobe.$domain.txt >> $resultDir/httprobefinal.$domain.txt
-	xargs -P 500 -a  $resultDir/httprobefinal.$domain.txt -I@ sh -c 'nc -w1 -z -v @ 443 2>/dev/null && echo @' | xargs -I@ -P10 sh -c 'gospider -a -s "https://@" -d 2 | grep -Eo "(http|https)://[^/\"].*\.js+" | sed "s#\] \-  #\n#g" | anew' >> $resultDir/subdomain_js_files.txt
+	sed -i -nr 'G;/^([^\n]+\n)([^\n]+\n)*\1/!{P;h}' $resultDir/httprobefinal.$domain.txt 
+	xargs -P 1 -a  $resultDir/httprobefinal.$domain.txt -I@ sh -c 'nc -w1 -z -v @ 443 2>/dev/null && echo @' | xargs -I@ -P1 sh -c 'gospider -a -s "https://@" -d 2 | grep -Eo "(http|https)://[^/\"].*\.js+" | sed "s#\] \-  #\n#g" | anew' >> $resultDir/subdomain_js_files.txt
+	sed -i -nr 'G;/^([^\n]+\n)([^\n]+\n)*\1/!{P;h}' $resultDir/subdomain_js_files.txt
 	echo -e "${BOLD}${LIGHT_GREEN}Fetching of jslinks completed!${NORMAL}"
 	
 	echo -e "${BOLD}${LIGHT_GREEN}Fetching of endpoints,parameters etc. started!${NORMAL}"
@@ -155,8 +206,8 @@ recon_jslinks(){
 	do
 		python3 $toolsDir/LinkFinder/linkfinder.py -i $file -o cli >> /$resultDir/endpoints.txt
 	done
-	grep -Fvxf /media/rocky2311/210cf76e-f990-4ec3-82fc-cdef7cc951691/Recon_Auto/nottobe_included.txt /$resultDir/endpoints.txt >> /$resultDir/endpoints_final.txt 
-	sort /$resultDir/endpoints_final.txt | uniq -d  >> /$resultDir/js_endpoints.txt  
+	grep -Fvxf /home/rocky2311/nottobe_included.txt /$resultDir/endpoints.txt >> /$resultDir/endpoints_final.txt 
+	sed -i -nr 'G;/^([^\n]+\n)([^\n]+\n)*\1/!{P;h}' /$resultDir/endpoints_final.txt 
 	echo -e "${BOLD}${LIGHT_GREEN}Fetching of endpoints,parameters etc. completed!${NORMAL}"
 	
 }
@@ -165,17 +216,49 @@ recon_jslinks(){
 recon_wed_dir_file_fuzzing(){
 	
 	echo -e "${BOLD}${LIGHT_GREEN}File & directory discovery process started!${NORMAL}"
-	for end in $(cat $resultDir/httprobe.$domain.txt); do ffuf -w /media/rocky2311/210cf76e-f990-4ec3-82fc-cdef7cc951691/Recon_Auto/generic_crowd_sourced_new.txt -u $end/FUZZ -mc 200,202,203 -t 4 -r -recursion 2 -s ;done >> $resultDir/subdomaindata_httprobe_fuzzing.txt 
+	for file in $(cat $resultDir/httprobe.$domain.txt); do ffuf -w /media/rocky2311/210cf76e-f990-4ec3-82fc-cdef7cc951691/wordlist/generic_crowd_sourced.txt -u $file/FUZZ -mc 200,202,203 -t 4 -r -recursion 2 -s -p 6 ;done >> $resultDir/subdomaindata_httprobe_fuzzing.txt 
 	sed $'s/[^[:print:]\t]//g' $resultDir/subdomaindata_httprobe_fuzzing.txt
-	sed -r 's/.{5}//' $resultDir/subdomain_httprobe_fuzzing.txt >> $resultDir/subdomain_fuzzing.txt
+	sed -r 's/.{5}//' $resultDir/subdomaindata_httprobe_fuzzing.txt >> $resultDir/subdomain_fuzzing.txt
 	echo -e "${BOLD}${LIGHT_GREEN}File & directory discovery process completed!${NORMAL}"
+}
+
+
+
+
+recon_domain_finddiff(){
+
+ENDTIME=$(date +%s)
+totalTime=$(( $ENDTIME-$STARTTIME ))
+
+echo "Subdomain diff. comparison process started---->" $domain
+sleep 2
+find $basedir/ -maxdepth 1 -name  ${domain_diff}"${domain_regexp}" -type d -exec readlink -f {} \; > $resultDir/names.txt
+
+#if (($(wc -l < $resultDir/names.txt) <= 1 ));then exit 1
+#fi
+sort -k1 -r $resultDir/names.txt >> $resultDir/sorted.txt
+head -2 $resultDir/sorted.txt >> $resultDir/names_lim.txt
+awk '{ print $0}' $resultDir/names_lim.txt | awk -F'/' '{print $6}' >> $resultDir/na_lim_split.txt
+line1=$(head  -1 $resultDir/na_lim_split.txt)
+line2=$(head  -2 $resultDir/na_lim_split.txt | tail -1)
+
+diff -bir $basedir/$line1/$domain.valsubdomainss.txt $basedir/$line2/$domain.valsubdomainss.txt | sort >> $resultDir/${domain_diff}_subdomains_new.txt
+
+sed -i '1d' $resultDir/${domain_diff}_subdomains_new.txt
+sed -i 's/^..//' $resultDir/${domain_diff}_subdomains_new.txt
+
 }
 
 recon_screenshot(){
 
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process started for domains resolved through httprobe!${NORMAL}"
 	#awk !/'.js'/ $resultDir/waybackurl_$domain.txt >> $resultDir/waybackurl_nojs.$domain.txt 
-	python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
+	if (($(wc -l < $resultDir/${domain_diff}_subdomains_new.txt) < 1 ))
+	then
+	    python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/httprobe.$domain.txt -o $resultDirWebSS -q 05 -t 60
+	else
+	    python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/${domain_diff}_subdomains_new.txt -o $resultDirWebSS -q 05 -t 60    
+	fi    
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process completed for domains resolved through httprobe!${NORMAL}"
 	
 }
@@ -191,45 +274,19 @@ recon_screenshot_waybackurl(){
 	awk '{ print $4 }' $resultDir/url_code_403.txt >> $resultDir/url_responsecode_403.txt
 	
 	python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/url_responsecode_200.txt -o $resultDirWebSS -q 05 -t 60
-        python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/url_responsecode_403.txt -o $resultDirWebSS -q 05 -t 60
+        #python $toolsDir/webscreenshot/webscreenshot.py -i $resultDir/url_responsecode_403.txt -o $resultDirWebSS -q 05 -t 60
 	echo -e "${BOLD}${LIGHT_GREEN}Screen shot process completed for url's discovered using waybackmachine!${NORMAL}"        
 }
 
 
-recon_domain_diff(){
+recon_domain_sendresults(){
 
-#rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt $resultDir/subdomaindata_httprobe_fuzzing.txt $resultDir/endpoints.txt $resultDir/endpoints_final.txt $resultDir/$domain.valsubdomains.txt $resultDir/$domain.validsubdomain.txt $resultDir/$domain.validsubdomainss.txt $resultDir/webarchive_$domain.txt
-
-ENDTIME=$(date +%s)
-totalTime=$(( $ENDTIME-$STARTTIME ))
-
-
-domain_diff=$domain
-domain_regexp="*"
-
-echo "Subdomain diff. comparison process started---->" $domain
-sleep 2
-find $basedir/ -maxdepth 1 -name  ${domain_diff}"${domain_regexp}" -type d -exec readlink -f {} \; > $resultDir/names.txt
-
-#echo ${domain_diff}"${domain_regexp}"
-#echo -n ${domain_diff};echo "$domain_regexp" | xargs
-
-#{ echo ${domain_diff} ; echo "$domain_regexp";}
-
-if (($(wc -l < $resultDir/names.txt) <= 1 ));then exit 1
-fi
-sort -k1 -r $resultDir/names.txt >> $resultDir/sorted.txt
-head -2 $resultDir/sorted.txt >> $resultDir/names_lim.txt
-awk '{ print $1}' $resultDir/names_lim.txt | awk -F'/' '{print $8}' >> $resultDir/na_lim_split.txt
-line1=$(head  -1 $resultDir/na_lim_split.txt)
-line2=$(head  -2 $resultDir/na_lim_split.txt | tail -1)
-
-diff -bir $basedir/$line1/$domain.valsubdomainss.txt $basedir/$line2/$domain.valsubdomainss.txt | sort >> $resultDir/${domain_diff}_subdomains_new.txt
-#cat $basedir/subdomains_new.txt
-
-rm -rf $resultDir/na_lim_split.txt $resultDir/names.txt $resultDir/names_lim.txt $resultDir/sorted.txt
-
-curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$resultDir/${domain_diff}_subdomains_new.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument 
+	if (($(wc -l < $resultDir/${domain_diff}_subdomains_new.txt) < 1 ))
+	then
+	    echo "No new subdomains!"
+	else    	
+           curl  --silent --output /dev/null -F "chat_id=731636917" -F document=@/$resultDir/${domain_diff}_subdomains_new.txt https://api.telegram.org/bot1345450515:AAFQMWbmxpMT1OznO7mN9IlIW8Xy5-CR12M/sendDocument
+        fi    
 
 echo -en "\rTime elapsed : ${BLINK}${LIGHT_GREEN}$totalTime${NORMAL} seconds"
 echo -e "Results in : ${LIGHT_GREEN}$resultDir${NORMAL}"
@@ -237,10 +294,22 @@ echo -e "${LIGHT_GREEN}" && tree $resultDir && echo -en "${NORMAL}"
 echo "Subdomain diff. comparison process competed---->" $domain
 }
 
+
+
+
+
+
+#find_subdomains
 recon_resdomains
-recon_waybackurls
+recon_nuclei
+#recon_waybackurls
 recon_naabu
-recon_screenshot
-recon_jslinks
+#recon_jslinks
 recon_wed_dir_file_fuzzing
-recon_domain_diff
+recon_domain_finddiff
+recon_screenshot
+#recon_screenshot_waybackurl
+recon_domain_sendresults
+
+rm -rf $resultDir/$domain.valsubdomains.txt $resultDir/$domain.subdomains.txt  $resultDir/findomain_$domain.txt $resultDir/assetfinder_$domain.txt $resultDir/subdomaindata_httprobe_fuzzing.txt $resultDir/endpoints.txt $resultDir/$domain.valsubdomains.txt $resultDir/$domain.validsubdomain.txt $resultDir/$domain.validsubdomainss.txt $resultDir/webarchive_$domain.txt
+rm -rf $resultDir/na_lim_split.txt $resultDir/names.txt $resultDir/names_lim.txt $resultDir/sorted.txt
